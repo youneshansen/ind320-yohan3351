@@ -1524,12 +1524,8 @@ elif page == "SARIMAX Forecasting":
         st.warning(f"No {data_type.lower()} groups found.")
         st.stop()
     
-    # Group and exogenous variable selection
-    col3, col4 = st.columns(2)
-    with col3:
-        target_group = st.selectbox(f"{data_type} Group", all_groups, index=0)
-    with col4:
-        use_exog = st.checkbox("Include temperature as exogenous variable", value=False)
+    # Group selection
+    target_group = st.selectbox(f"{data_type} Group", all_groups, index=0)
     
     # Get actual date range from database
     @st.cache_data(ttl=3600)
@@ -1578,8 +1574,6 @@ elif page == "SARIMAX Forecasting":
             Q = st.slider("Q (Seasonal MA)", 0, 2, 1)
             S = st.slider("S (Seasonal period)", 12, 48, 24)
     
-    exog_vars = ["temperature_2m"] if use_exog else []
-    
     # Fetch energy data
     cli = _mongo_client(uri)
     dt_start = datetime.combine(train_start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
@@ -1625,35 +1619,6 @@ elif page == "SARIMAX Forecasting":
     
     st.success(f"Loaded {len(df_daily)} daily records for training.")
     
-    # Prepare exogenous variables if selected
-    exog_train = None
-    exog_forecast = None
-    if use_exog:
-        # Download weather data for all years in training period
-        df_weather_list = []
-        for year in range(train_start_date.year, train_end_date.year + 1):
-            df_year = download_era5_hourly_for_area(area, year)
-            df_weather_list.append(df_year)
-        df_weather = pd.concat(df_weather_list).sort_index()
-        
-        weather_daily = df_weather["temperature_2m"].resample("D").mean().to_frame()
-        
-        # Align weather data with energy data using intersection
-        common_idx = df_daily.index.intersection(weather_daily.index)
-        
-        if len(common_idx) == 0:
-            st.error("❌ No overlapping dates between energy and weather data. Cannot use temperature as exogenous variable.")
-            st.stop()
-        
-        df_daily = df_daily.loc[common_idx]
-        exog_train = weather_daily.loc[common_idx]
-        
-        st.info(f"Using {len(common_idx)} days with both energy and weather data.")
-        
-        last_val = exog_train.iloc[-1]
-        exog_forecast = pd.DataFrame([last_val] * forecast_days, columns=["temperature_2m"])
-        exog_forecast.index = pd.date_range(start=df_daily.index[-1] + pd.Timedelta(days=1), periods=forecast_days, freq="D")
-    
     # Fit SARIMAX model
     if st.button("🚀 Run SARIMAX Forecast", type="primary"):
         with st.spinner("Fitting SARIMAX model..."):
@@ -1662,7 +1627,6 @@ elif page == "SARIMAX Forecasting":
                     df_daily["energy_kwh"],
                     order=(p, d, q),
                     seasonal_order=(P, D, Q, S),
-                    exog=exog_train if use_exog else None,
                     enforce_stationarity=False,
                     enforce_invertibility=False
                 )
@@ -1672,7 +1636,7 @@ elif page == "SARIMAX Forecasting":
                 st.success("✅ Model fitted successfully!")
                 
                 # Forecast
-                forecast_obj = results.get_forecast(steps=forecast_days, exog=exog_forecast if use_exog else None)
+                forecast_obj = results.get_forecast(steps=forecast_days)
                 forecast_mean = forecast_obj.predicted_mean
                 forecast_ci = forecast_obj.conf_int()
                 
