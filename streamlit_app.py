@@ -1637,13 +1637,18 @@ elif page == "SARIMAX Forecasting":
         df_weather = pd.concat(df_weather_list).sort_index()
         
         weather_daily = df_weather["temperature_2m"].resample("D").mean().to_frame()
-        exog_train = weather_daily.reindex(df_daily.index).dropna()
         
-        # Ensure we have matching data
-        if len(exog_train) != len(df_daily):
-            common_idx = df_daily.index.intersection(exog_train.index)
-            df_daily = df_daily.loc[common_idx]
-            exog_train = exog_train.loc[common_idx]
+        # Align weather data with energy data using intersection
+        common_idx = df_daily.index.intersection(weather_daily.index)
+        
+        if len(common_idx) == 0:
+            st.error("❌ No overlapping dates between energy and weather data. Cannot use temperature as exogenous variable.")
+            st.stop()
+        
+        df_daily = df_daily.loc[common_idx]
+        exog_train = weather_daily.loc[common_idx]
+        
+        st.info(f"Using {len(common_idx)} days with both energy and weather data.")
         
         last_val = exog_train.iloc[-1]
         exog_forecast = pd.DataFrame([last_val] * forecast_days, columns=["temperature_2m"])
