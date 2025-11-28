@@ -1637,7 +1637,14 @@ elif page == "SARIMAX Forecasting":
         df_weather = pd.concat(df_weather_list).sort_index()
         
         weather_daily = df_weather["temperature_2m"].resample("D").mean().to_frame()
-        exog_train = weather_daily.loc[df_daily.index].dropna()
+        exog_train = weather_daily.reindex(df_daily.index).dropna()
+        
+        # Ensure we have matching data
+        if len(exog_train) != len(df_daily):
+            common_idx = df_daily.index.intersection(exog_train.index)
+            df_daily = df_daily.loc[common_idx]
+            exog_train = exog_train.loc[common_idx]
+        
         last_val = exog_train.iloc[-1]
         exog_forecast = pd.DataFrame([last_val] * forecast_days, columns=["temperature_2m"])
         exog_forecast.index = pd.date_range(start=df_daily.index[-1] + pd.Timedelta(days=1), periods=forecast_days, freq="D")
